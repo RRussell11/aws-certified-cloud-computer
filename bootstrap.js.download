@@ -1,0 +1,571 @@
+!function(){
+var MODULE_LOAD_URL="/static/build/modules",IN_WORKER="function"==typeof importScripts,host=location.protocol+"//"+location.hostname+(location.port?":"+location.port:""),global=function(){
+return this}()
+global||"undefined"==typeof window||(global=window),global||"undefined"==typeof self||(global=self)
+var commentRegExp=/(\/\*([\s\S]*?)\*\/|([^:]|^)\/\/(.*)$)/gm,cjsRequireRegExp=/require\s*\(\s*["']([^'"\s]+)["']\s*\)/g
+function getInlineDeps(fn){var deps=[]
+return fn.length&&(fn.toString().replace(commentRegExp,"").replace(cjsRequireRegExp,(function(match,dep,index,str){
+for(var i=index;str.charCodeAt(i-=1)<=32;);"."!==str.charAt(i)&&deps.push(dep)})),
+deps=["require","exports","module"].concat(deps)),deps}function define(name,deps,callback){
+if("string"!=typeof name&&(callback=deps,
+deps=name,name=null),deps&&!Array.isArray(deps)&&(callback=deps,
+deps=null),nextModule&&(name&&name!=nextModule.name||(name=nextModule.name,
+deps=deps||nextModule.deps,nextModule=null)),!name)return defQueue.push([deps,callback])
+define.loaded[name]||(deps||"function"!=typeof callback||(deps=getInlineDeps(callback)),
+define.loaded[name]={id:name,deps:resolveNames(name,deps||[]),factory:callback,exports:{}},
+define.loading[name]&&delete define.loading[name],
+define.lastModule?define.pending.push(name):define.lastModule=name)}
+var nextModule,defQueue=[],addToLoadQueue=function(missing,deps,callback,errback){
+var toLoad=missing.length,map={}
+define.queue.push({deps:deps,map:map,toLoad:toLoad,callback:callback,errback:errback})
+for(var i=0;i<missing.length;++i){var p=missing[i]
+map[p]=1,define.loading[p]||(define.loading[p]=1,require.load(p))}
+},processLoadQueue=function(err,id){var changed=!1
+err?(id||(id=err.id),define.errors[id]=err,define.queue.forEach((function(r){
+r.map[id]&&(r.toLoad=-1,r.errback&&r.errback(err))
+})),define.lastModule==id&&(define.lastModule=null),
+define.pending=define.pending.filter((function(p){return p!=id
+})),changed=!0):!id||defQueue.length||define.loaded[id]||(defQueue=[config.shim&&config.shim[id]||[[],null]]),
+defQueue.length&&(defQueue.length>1&&(console.error("possible error, more than one module in defqueue",defQueue),
+defQueue=defQueue.slice(-1)),define(id,defQueue[0][0],defQueue[0][1]),defQueue.length=0)
+var pending=define.pending
+define.queue.forEach((function(request){pending.forEach((function(id){
+request.map[id]&&request.toLoad--})),request.map[define.lastModule]&&request.toLoad--,
+request.toLoad<=0&&(request.toLoad=NaN,
+changed=!0,_require("",request.deps,request.callback,request.errback))})),define.lastModule=null,
+pending.length&&(define.pending=[]),changed&&(define.queue=define.queue.filter((function(r){
+return r.toLoad>0})))}
+define.amd={},define.queue=[],define.loaded={},define.errors={},define.loading={},define.pending=[],
+define.modules={require:1,exports:1,module:1},define.fetchedUrls={}
+var activateModule=function(name){var module=define.loaded[name]
+module.getModuleDefinition&&(module=module.getModuleDefinition(module))
+var exports=module.exports
+if("function"!=typeof module.factory)exports=module.factory
+else{var req=function(path,callback){return _require(name,path,callback)}
+req.config=config
+var missing=checkMissing(module.deps)
+if(missing.length)return missing
+module.define=define
+var specialModules={require:req,exports:exports,module:module}
+0!=name.lastIndexOf("architect!",0)||module.pluginFactory||(module.pluginFactory=module.factory,
+module.factory=activateArchitectModule),define.modules[name]=exports
+var args=module.deps.slice(0,module.factory.length),returnValue=args.length?module.factory.apply(module,args.map((function(name){
+return specialModules[name]||lookup(name)}))):module.factory(req,exports,module)
+exports=null==returnValue?module.exports:returnValue}
+config.$keepLoaders||delete define.loaded[name],define.modules[name]=exports
+},checkMissing=function(deps,seen,missing){missing=missing||{},seen=seen||{}
+for(var i=0;i<deps.length;++i){var depName=deps[i]
+if(!define.modules[depName]){var dep=define.loaded[depName]
+dep?missing[depName]||seen[depName]||(seen[depName]=1,checkMissing(dep.deps,seen,missing)):missing[depName]=1
+}}return Object.keys(missing)},lookup=function(moduleName){var mod=define.modules[moduleName]
+return void 0===mod&&define.loaded[moduleName]&&(activateModule(moduleName),mod=define.modules[moduleName]),
+mod}
+function asyncRequire(parentId,moduleName,callback,errback){
+var result,deps=resolveNames(parentId,moduleName),missing=checkMissing(deps)
+if(callback||errback||"function"!=typeof Promise||(result=new Promise((function(resolve,reject){
+callback=function(){resolve([].slice.call(arguments))},errback=reject
+}))),missing.length)addToLoadQueue(missing,deps,callback,errback)
+else{var args=deps.map(lookup)
+result&&(result.resolved=args),callback&&callback.apply(null,args)}return result}
+var _require=function(parentId,moduleName,callback,errback){if("string"==typeof moduleName){
+var depName=resolveName(parentId,moduleName),module=lookup(depName)
+if(void 0!==module)return"function"==typeof callback&&callback(module),module
+if(IN_WORKER||syncLoaders.test(moduleName))return addToLoadQueue([depName],[depName]),
+lookup(depName)
+}else if(Array.isArray(moduleName))return asyncRequire(parentId,moduleName,callback,errback)}
+function resolveName(parentId,moduleName,isPluginPath){
+/!/.test(parentId)&&(parentId=parentId.split("!").pop())
+var i=moduleName.indexOf("!")
+if(-1!==i)return resolveName(parentId,moduleName.slice(0,i),!0)+"!"+resolveName(parentId,moduleName.slice(i+1))
+if("."==moduleName.charAt(0)){
+var parentChunks=parentId.split("/"),parentModule=parentChunks.shift(),path=parentChunks.slice(0,-1).join("/")
+for(moduleName=parentModule+(path?"/"+path:"")+"/"+moduleName;-1!==moduleName.indexOf(".")&&previous!=moduleName;){
+var previous=moduleName
+moduleName=moduleName.replace(/\/\.\//,"/").replace(/[^\/]+\/\.\.\//,"")}}
+return!isPluginPath&&config.alias[moduleName]&&(moduleName=config.alias[moduleName]),moduleName}
+function resolveNames(parentId,moduleNames){return moduleNames.map((function(name){
+return resolveName(parentId,name)}))}var require=function(module,callback,errback){
+return _require("",module,callback,errback)},config=require.config=function(options){
+if(options.baseUrl&&(config.baseUrl=options.baseUrl.replace(/\/*$/,"/")),
+options.host&&(host=options.host),options.alias&&Object.keys(options.alias).forEach((function(p){
+config.alias[p]=options.alias[p]})),options.paths&&Object.keys(options.paths).forEach((function(p){
+config.paths[p]=options.paths[p]
+})),"useDevBundle"in options&&(config.useDevBundle=options.useDevBundle),
+options.transform&&(config.transform=options.transform),
+/\bes5\b/.test(options.transform)&&!global.shimIncluded){
+console.assert||(console.assert=function(){})
+var oldFlags=RegExp.prototype.flags
+RegExp.prototype.flags=!0,require(["js-polyfills/es6"]),RegExp.prototype.flags=oldFlags,
+global.shimIncluded=!0}options.MODULE_LOAD_URL&&(require.MODULE_LOAD_URL=options.MODULE_LOAD_URL),
+options.assetUrl&&(config.assetUrl=options.assetUrl),
+null!=options.$keepLoaders&&(config.$keepLoaders=options.$keepLoaders)}
+function undefOne(module,path){delete define.errors[module],delete define.loaded[module],
+delete define.modules[module],delete define.loading[module],delete define.fetchedUrls[path]}
+function undefAll(module,hash){Object.keys(hash).forEach((function(key){var i=key.indexOf("!")+1
+if(0==key.lastIndexOf(module,0)&&undefOne(key,require.toUrl(key,".js")),i){
+var plugin=key.slice(0,i-1),resource=key.slice(i)
+0!=resource.lastIndexOf(module,0)&&0!=plugin.lastIndexOf(module,0)||(undefOne(key,require.toUrl(key,"")),
+undefOne(resource,require.toUrl(resource,"")))}}))}function addTransform(url,moduleName){
+var transform=require.config.transform
+return Array.isArray(transform)||(transform=[transform]),("~/"+transform.map((function(part){
+return"string"==typeof part?part:-1!=moduleName.lastIndexOf(part[0],0)?part[1]:void 0
+})).filter(Boolean).join(",")+"/"+url).replace("//","/")}require.resetConfig=function(cfg){
+config.alias=Object.create(null),config.paths=Object.create(null),config.baseUrl="",
+config.transform="",cfg&&require.config(cfg)},require.getConfig=function(){
+var script=document.querySelector("script[src*=mini_require]")
+return{host:host,paths:config.paths,baseUrl:config.baseUrl,alias:config.alias,
+transform:config.transform,useDevBundle:config.useDevBundle,MODULE_LOAD_URL:require.MODULE_LOAD_URL,
+requireSourceUrl:!config.packed&&script&&script.src,assetUrl:config.assetUrl}
+},require.resetConfig(),define.undef=require.undef=function(module,recursive){
+if(module=resolveName("",module),recursive){var root=(module+"/").replace(/\/+$/,"/")
+undefAll(root,define.errors),undefAll(root,define.loaded),undefAll(root,define.modules),
+undefAll(root,define.loading)}else undefOne(module,require.toUrl(module,".js"))},
+require.MODULE_LOAD_URL=MODULE_LOAD_URL,require.toUrl=function(moduleName,ext,skipExt,isStatic){
+var absRe=/^([\w\+\.\-]+:|\/)/;-1===moduleName.indexOf("!")&&ext&&!/^\//.test(moduleName)||(ext="")
+for(var paths=config.paths,testPath=moduleName,tail="";testPath;){if(paths[testPath]){
+moduleName=paths[testPath]+tail
+break}var i=testPath.lastIndexOf("/")
+if(-1===i)break
+tail=testPath.substr(i)+tail,testPath=testPath.slice(0,i)}if(skipExt)return testPath
+var url=".js"==ext&&moduleName.slice(-3)==ext?moduleName:moduleName+ext
+if(ext&&".ts"==moduleName.slice(-3)&&(url=moduleName.slice(0,-3)+ext),!absRe.test(url)){
+".js"==ext&&require.config.transform&&(url=addTransform(url,moduleName))
+var baseUrl=config.baseUrl
+baseUrl||(baseUrl=isStatic?config.assetUrl||require.MODULE_LOAD_URL+"/../":require.MODULE_LOAD_URL),
+"/"!=baseUrl.slice(-1)&&(baseUrl+="/"),url=baseUrl+url}return"/"==url[0]&&(url=host+url),url}
+var loadScriptWithTag=function(path,id,callback){if(IN_WORKER)return nextModule={name:id,deps:null},
+"/"==path[0]&&(path=host+path),importScripts(path),callback(null,id)
+var head=document.head||document.documentElement,s=document.createElement("script")
+s.setAttribute("crossorigin","anonymous"),s.src=path,s.charset="utf-8",s.async=!0,
+s.onload=s.onreadystatechange=function(_,isAbort){
+!isAbort&&s.readyState&&"loaded"!=s.readyState&&"complete"!=s.readyState||(s.remove&&s.remove(),
+s=s.onload=s.onreadystatechange=null,isAbort||callback(null,id))},s.onerror=function(e){
+processLoadQueue({message:"Error loading script "+id+":"+path,id:id,path:path})},head.appendChild(s)
+}
+function loadText(path,sync,callback){callback||(callback=sync,sync=!1)
+var xhr=new global.XMLHttpRequest
+xhr.open("GET",path,!sync),xhr.setRequestHeader("Content-Type","application/x-www-form-urlencoded; charset=UTF-8"),
+xhr.onload=function(e){if(xhr.status>399&&xhr.status<600)return callback({message:xhr.statusText,
+path:path})
+callback(null,xhr.responseText,xhr)},xhr.onabort=xhr.onerror=function(e){callback(e)},xhr.send("")}
+var loadScript=function(path,id,callback){var useDevBundle=config.useDevBundle
+return"string"==typeof useDevBundle&&(useDevBundle=id.match(useDevBundle)),useDevBundle&&!(path===id)?loadDevBundle(path,id,callback):loadScriptWithTag(path,id,callback)
+}
+function loadDevBundle(path,id,callback){
+loadText(path+="?devBundle=1",IN_WORKER,(function(err,text,xhr){if(err)return callback(err)
+parseDevBundle(text)
+var continuationToken=xhr.getResponseHeader("x-metadata-length")
+if(!continuationToken)return callback(err,id)
+loadText(path+"&continue="+continuationToken,IN_WORKER,(function(err,text){
+if(err)return callback(err)
+parseDevBundle(text,!0),callback(err,id)}))}))}var DEV_BUNDLE_SEPARATOR="\0\0"
+function parseDevBundle(text,isDiff){
+for(var parts=text.split(DEV_BUNDLE_SEPARATOR),i=1;i<parts.length;i+=2)define.bundlePart(parts[i],parts[i+1],isDiff)
+return parts[0]}function prepareBundlePart(part){var id=part.id
+define.loaded[id]=null
+var source=part._source
+nextModule={name:id,deps:[]}
+var path=require.MODULE_LOAD_URL+"~/amd/"+id.replace(/^[^/!]+!/,"")+".js"
+return"/"==path[0]&&(path=host+path),global.eval(source+"\n//# sourceURL="+path),nextModule=null,
+define.loaded[id]}define.bundlePart=function(id,source,reload){reload&&require.undef(id)
+var factory=/text!/.test(id)?source:void 0
+define.loaded[id]={id:id,deps:[],factory:factory,exports:{},
+getModuleDefinition:factory?void 0:prepareBundlePart,_source:source
+},define.loading[id]&&delete define.loading[id],define.pending.push(id)},require.load=function(id){
+var i=id.indexOf("!")+1
+if(i){var plugin=id.substring(0,i),resourceId=id.substr(i)
+"function"==typeof require[plugin]?require[plugin](resourceId,processLoadQueue,id):console.error("require plugin "+plugin+"missing")
+}else{var url=require.toUrl(id,".js")
+if(1&define.fetchedUrls[url])return!1
+define.fetchedUrls[url]|=1,loadScript(url,id,processLoadQueue)}}
+var syncLoaders=/^(language!|webworker!|vfs!|asset-url!)/
+function activateArchitectModule(_1,_2,_3){var module=this,wrapper=function(){
+return module.pluginFactory(_1,_2,_3),
+"function"==typeof module.exports&&(module.exports.provides||module.exports.consumes)?module.exports.apply(this,arguments):module.exports
+}
+return wrapper.packagePath=module.id,wrapper}require["language!"]=function(module,callback,id){
+define(id,[],module),callback()},require["webworker!"]=function(module,callback,id){
+define(id,[],require.toUrl(module.split("!").pop(),".js")),callback()
+},require["asset-url!"]=function(module,callback,id){
+define(id,[],require.toUrl(module.split("!").pop(),"","",!0)),callback()
+},require["vfs!"]=function(module,callback,id){var url=require.MODULE_LOAD_URL+"/~node/"+module
+if(4&define.fetchedUrls[url])return!1
+define.fetchedUrls[url]|=4,define(id,[],{srcUrl:url,path:module}),callback()
+},require["text!"]=function(module,callback,id){var url=require.toUrl(module)
+if(2&define.fetchedUrls[url])return!1
+define.fetchedUrls[url]|=2,loadText(url,(function(err,val){if(err)return callback(err,id)
+define(id,[],val),callback()}))},require["json!"]=function(module,callback,id){
+var textId="text!"+module
+require["text!"](module,(function(err){if(err)return callback(err,id)
+var val=JSON.parse(require(textId))
+define(id,[],val),callback()}),textId)},require["architect-config!"]=function(module,callback,id){
+var url=require.toUrl(module,".js").replace("~/","~/config,")
+if(1&define.fetchedUrls[url])return!1
+define.fetchedUrls[url]|=1,loadScript(url,id,processLoadQueue)
+},require["ace/requirejs/text!"]=require["text!"],
+require["architect!"]=function(module,callback,id){var url=require.toUrl(module,".js")
+if(1&define.fetchedUrls[url])return!1
+define.fetchedUrls[url]|=1,loadScript(url,id,processLoadQueue)
+},require["vs/css!"]=function(module,callback,id){define(id,[],{}),callback()
+},global.define&&global.define.packaged||(define.original=global.define,global.define=define,
+global.define.packaged=!0),global.require&&global.require.packaged||(global.require=require,
+global.require.packaged=!0),global.requirejs||(global.requirejs=require),global.miniRequire=require
+}()
+
+
+define("events",[],(function(require,exports,module){
+var EventEmitter=exports.EventEmitter=function(){},toString=Object.prototype.toString,isArray=Array.isArray||function(obj){
+return"[object Array]"===toString.call(obj)},defaultMaxListeners=10
+EventEmitter.prototype.setMaxListeners=function(n){this._events||(this._events={}),
+this._events.maxListeners=n},EventEmitter.prototype.emit=function(type){if(this._events){
+var handler=this._events[type]
+if(handler){var returnValue
+if("function"==typeof handler)switch(arguments.length){case 1:return handler.call(this)
+case 2:return handler.call(this,arguments[1])
+case 3:return handler.call(this,arguments[1],arguments[2])
+default:var args=Array.prototype.slice.call(arguments,1)
+returnValue=handler.apply(this,args)}else if(isArray(handler)){
+args=Array.prototype.slice.call(arguments,1)
+for(var temp,listeners=handler.slice(),i=0,l=listeners.length;i<l;i++)void 0!==(temp=listeners[i].apply(this,args))&&(returnValue=temp)
+}return returnValue}}},EventEmitter.prototype.addListener=function(type,listener,plugin){
+if("function"!=typeof listener)throw new Error("addListener only takes instances of Function")
+this._events||(this._events={})
+var eventList=this._events[type]
+if(eventList)if(isArray(eventList)){var m
+if(!eventList.warned)(m=void 0!==this._events.maxListeners?this._events.maxListeners:defaultMaxListeners)&&m>0&&eventList.length>m&&(eventList.warned=!0,
+console.error('warning: possible EventEmitter memory leak detected. "'+eventList.length+'" listeners of type "'+type+'" added. Use emitter.setMaxListeners() to increase limit.'),
+console.trace())
+eventList.push(listener)}else this._events[type]=[eventList,listener]
+else this._events[type]=listener
+return"newListener"!=type&&this.emit("newListener",type,listener),plugin&&plugin.addEvent(this,type,listener),
+this
+},EventEmitter.prototype.on=EventEmitter.prototype.addListener,EventEmitter.prototype.once=function(type,listener,plugin){
+var self=this,wrapped=function(){return self.removeListener(type,wrapped.listener),
+wrapped.listener.apply(self,arguments)}
+if(listener)return wrapped.listener=listener,self.on(type,wrapped,plugin),this
+var result=new Promise((function(resolve){wrapped.listener=resolve}))
+return self.on(type,wrapped,plugin),result
+},EventEmitter.prototype.removeListener=function(type,listener){
+if("function"!=typeof listener)throw new Error("removeListener only takes instances of Function")
+if(!this._events||!this._events[type])return this
+var list=this._events[type]
+if(isArray(list)){if(!list.some((function(l,i){if((l.listener||l)==listener)return list.splice(i,1),
+!0})))return this
+0===list.length&&delete this._events[type]
+}else(this._events[type].listener||this._events[type])===listener&&delete this._events[type]
+return"removeListener"!=type&&this.emit("removeListener",type,listener),this
+},EventEmitter.prototype.off=EventEmitter.prototype.removeListener,
+EventEmitter.prototype.removeAllListeners=function(type){
+return type&&this._events&&this._events[type]&&(this._events[type]=null),this
+},EventEmitter.prototype.listeners=function(type){return this._events||(this._events={}),
+this._events[type]||(this._events[type]=[]),
+isArray(this._events[type])||(this._events[type]=[this._events[type]]),this._events[type]}}))
+
+
+define("architect/imports",[],(function(require,exports,module){"use strict"
+exports.$setImports=function(value){
+module.exports=value||null,"undefined"!=typeof define&&define.modules&&(define.modules["architect/imports"]=value||{})
+}}))
+
+
+define("architect/architect",[],(function(require,exports,module){"use strict"
+var USE_PROXY="undefined"!=typeof Proxy,LOADING={},EventEmitter=require("events").EventEmitter,{$setImports:setInternalImports}=require("./imports")
+function setImports(imports,app){exports.$currentApp=app,setInternalImports(imports)}
+function normalizeServiceName(name){
+return name.replace(/[._\-]./g,([dot,letter])=>letter.toUpperCase())}
+function registerAlias(app,name,newPlugin,replace){var normalizedName=normalizeServiceName(name)
+;[name,normalizedName,name.replace(/[.]./g,x=>x[1].toUpperCase()),name.replace(/[._]./g,x=>x[1].toUpperCase()),name.replace(/[a-z\d][A-Z]/g,x=>x[0]+"."+x[1].toLowerCase()),name.replace(/[a-z\d][A-Z]/g,x=>x[0]+"_"+x[1].toLowerCase())].forEach((function(x){
+app.$alias[x]=normalizedName,
+app.$addServiceName&&(app.$addServiceName(x),app.$addServiceName(x+"Options"))})),
+!replace&&app.serviceDefinitions[normalizedName]||(app.serviceDefinitions[normalizedName]=newPlugin)
+}setInternalImports(null)
+class Architect extends EventEmitter{constructor(config){super()
+var app=this
+app.config=config,app.serviceToPlugin={},app.serviceDefinitions={},app.$alias={},
+app._moduleCache=Object.create(null)
+var services=app.services={app:app,hub:app},handler={get:function(target,name){
+const dependency=app.getService(name)
+if(dependency instanceof Error){
+const err=new Error(`Dependency ${name} failed to load:\n${dependency.message}`)
+throw err.stack=dependency.stack,err}return dependency}}
+USE_PROXY?app.imports=new Proxy(services,handler):(app.imports={},app.$addServiceName=function(name){
+app.imports.__defineGetter__(name,(function(){return handler.get(null,name)}))},
+Object.keys(services).forEach(app.$addServiceName)),
+app.addPlugins(config),services.imports=app.imports}getService(name){
+if(this.$alias[name]&&(name=this.$alias[name]),"symbol"==typeof name)return this.services[name]
+try{const result=this.services[name]||name in this.serviceDefinitions&&this.$activatePlugin(name)
+if(result==LOADING)throw new Error("Dependency cycle detected when loading "+name)
+if(!result)throw new Error("Trying to access unknown service "+name)
+return result}catch(err){return this.services[name]=err,err}}activate(pluginNames){
+var serviceDefinitions=this.serviceDefinitions
+pluginNames||(pluginNames=Object.keys(serviceDefinitions))
+var errors={}
+if(pluginNames.forEach(key=>{const service=this.getService(key)
+service instanceof Error&&(errors[key]=service)}),setImports(null),this.emit("ready"),
+Object.keys(errors).length>0){
+const err=new Error("The following plugins failed to load:\n"+Object.keys(errors).map(key=>key+": "+errors[key].message).reduce((a,b)=>a+"\n"+b))
+throw err.errors=errors,err}}$activatePlugin(name){name=normalizeServiceName(name)
+var app=this,options=this.serviceDefinitions[name],setup=options.setup
+if(!setup&&name.endsWith("Options"))return options
+var optionsName=name+"Options"
+this.serviceDefinitions[optionsName]&&(options=this.serviceDefinitions[optionsName])
+var asyncResult,asyncErr,services=this.services,imports=this.imports
+function addDefinition(key){var normalizedName=normalizeServiceName(key)
+if(services[normalizedName]&&services[normalizedName]!=LOADING)return console.error(`Plugin ${name} attempted to redefine ${normalizedName}`)
+services[normalizedName]=providedServices[key],app.serviceToPlugin[normalizedName]=options,
+app.emit("service",normalizedName,providedServices[key])}services[name]=LOADING,
+services[optionsName]=options,setImports(imports,this)
+var syncResult=setup(options,imports,(function(err,result){
+err&&(asyncErr=err),asyncResult=result||{}}))
+if(asyncErr)throw asyncErr
+var providedServices=asyncResult||syncResult
+if(!providedServices)throw new Error(`register for "${name}" was not called.\n            Asynchronous registration of services is deprecated`)
+if(providedServices[name]||/^[$_]|^\d+$/.test(name)&&(providedServices[name]={}),
+Object.keys(providedServices).forEach(addDefinition),
+services[name]==LOADING||!services[name])throw new Error(`${name} not provided by ${setup.packagePath||options.packagePath}`)
+return services[name]}addPlugins(newPlugins,options={}){Object.keys(newPlugins||{}).forEach(key=>{
+var newPlugin=newPlugins[key]
+"function"==typeof newPlugin&&(newPlugin={setup:newPlugin
+}),!newPlugin.provides&&newPlugin.setup&&(newPlugin.provides=newPlugin.setup.provides),
+"string"==typeof newPlugin.provides&&(newPlugin.provides=[newPlugin.provides]),
+newPlugin.provides&&newPlugin.provides.length?newPlugin.provides.forEach(name=>{
+registerAlias(this,name,newPlugin,options.replace)
+}):registerAlias(this,key,newPlugin,options.replace)})}}function createApp(config,callback){var app
+try{app=new Architect(config)}catch(err){return callback(err,app)}return setTimeout((function(){try{
+app.activate(),callback(null,app)}catch(err){callback(err,app)}})),app}exports.createApp=createApp,
+exports.Architect=Architect,exports.$setImports=setImports}))
+
+
+define("architect/requirejs-loader",[],(function(require,exports,module){"use strict"
+function resolveArrayConfig(config,callback){var packagePaths=config.map((function(plugin){
+return"string"==typeof plugin?plugin:plugin.provides&&plugin.packagePath&&!/!/.test(plugin.packagePath)?"architect!"+plugin.packagePath:plugin.packagePath
+})).filter((function(path){return!!path})),request=require(packagePaths)
+function done(modules){var i=0
+callback(null,config.map((function(plugin){
+return"string"==typeof plugin?modules[i++]:plugin.packagePath?(plugin.setup=modules[i++],
+plugin):plugin})))}request.resolved?done(request.resolved):request.then(done)}
+function resolveObjectConfig(config,callback){
+var keys=Object.keys(config),packagePaths=keys.map((function(key){var path=config[key]
+if("string"==typeof path)return/!/.test(path)?path:"architect!"+path})).filter((function(path){
+return!!path})),request=require(packagePaths)
+function done(modules){var i=0
+keys.forEach((function(key){"string"==typeof config[key]&&(config[key]=modules[i++])})),
+callback(null,config)}request.resolved?done(request.resolved):request.then(done)}
+exports.resolveConfig=function(config,callback){
+return Array.isArray(config)?resolveArrayConfig(config,callback):resolveObjectConfig(config,callback)
+}}))
+
+
+define("@c9/ide/shared_bootstrap",[],(function(require,exports,module){
+function startArchitectApp(plugins,bootstrapStartTime){
+var startingArchitectTime=Date.now(),architect=require("architect"),loader=require("architect/requirejs-loader")
+return new Promise((resolve,reject)=>{loader.resolveConfig(plugins,(function(err,config){
+if(err)throw err
+architect.createApp(config,(err,architectApp)=>{if(onArchitectReady(err,architectApp),
+err)return reject(err)
+resolve(architectApp)}).on("service",(function(name,plugin,options){plugin.name||(plugin.name=name)
+}))}),(function(mod){
+const loadErrorMessage="Unable to load html5.js.\n\nThis may be caused by a false positive in your virus scanner. Please try reloading with ?packed=1 added to the URL."
+if("@c9/ide/plugins/c9.ide.clipboard/html5"===mod.id)return alert(loadErrorMessage)}))})
+function onArchitectReady(err,architectApp){
+var architectReadyTime=Date.now(),services=architectApp.services
+if(err){const dialogError=services.dialogError
+dialogError&&dialogError.show?dialogError.show(err):alert(err)
+const logger=services.logger
+if(logger&&logger.logUncaughtException){logger.logUncaughtException(err)
+for(const plugin of Object.keys(err.errors))logger.logUncaughtException(err.errors[plugin])
+}else console.error(err.stack)}services.configure&&(services.configure.services=services),
+window.app=services
+var c9=services.c9,clientMetrics=services.clientMetrics
+services.tabManager.on("tabManagerLoadedState",()=>{
+clientMetrics.addValue("architectReadyToTabsLoadedTime",Date.now()-architectReadyTime),
+clientMetrics.addValue("bootstrapStartToTabsLoadedTime",Date.now()-bootstrapStartTime)}),c9.ready(),
+clientMetrics.addValue("bootstrapStartToStartArchitect",startingArchitectTime-bootstrapStartTime),
+clientMetrics.addValue("architectCreateAppTime",architectReadyTime-startingArchitectTime),
+c9.totalLoadTime=architectReadyTime-bootstrapStartTime}}
+async function renderLoadingScreen(architectReadyPromise,bootstrapStartTime,options={}){
+return"loading"===document.readyState&&await new Promise(resolve=>document.addEventListener("DOMContentLoaded",resolve)),
+renderLoadingScreenAfterContentLoaded(architectReadyPromise,bootstrapStartTime,options)}
+async function renderLoadingScreenAfterContentLoaded(architectReadyPromise,bootstrapStartTime,options={}){
+const onLoadingTooLong=options.onLoadingTooLong||function(){}
+document.body.innerHTML='<div id="loadingcontainer" class="">     <div id="loadingide">         <div class="timeout">             This is taking longer than expected. The delay may be caused by high CPU usage in your environment, or your T2 or T3 instance is running out of burstable CPU capacity credits, or there are VPC configuration issues.         </div>         <div id="dialog-overlay"></div>         <div id="incompatible-browser-dialog">This version of the browser cannot display the AWS Cloud9 IDE.  Use a different browser instead.  <br /><a href="https://docs.aws.amazon.com/console/cloud9/browsers">Learn more</a></div>         <div id="loadingideTopMargin"></div>         <div id="c9logo"></div>         <div id="loadingideLogoMargin"></div>         <div id="loadingideSpinnerContainer">         <div class="loadingide-spinner">             <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">                 <circle fill="none" stroke="initial" stroke-width="5" stroke-linecap="round" stroke-dasharray="180" stroke-dashoffset="90" cx="50" cy="50" r="30"></circle>             </svg>         </div>         </div>         <div id="loadingideSpinnerMargin"></div>         <div id="loadingideMessageContainer">             <div class="cool-message"></div>         </div>         <div id="loadingideBottomMargin"></div>         <div class="footer">            <a href="https://status.aws.amazon.com/">Status Page</a>        </div>     </div> </div>'
+var loadingIde=document.querySelector("#loadingide")
+let loadingTooLongTimeout
+function hideLoader(){onLoadingTooLong(architectReadyPromise,!1),clearTimeout(loadingTooLongTimeout)
+var loader=document.getElementById("loadingcontainer")
+loader&&loader.parentNode.removeChild(loader),document.body.className=document.body.className.replace("loading "+loadingIde.className,"")
+}
+document.querySelector("#loadingide .cool-message").innerHTML=options.loadingMessageOverride||getMessage(),
+setTimeout((function(){
+var s=document.querySelector("#loadingideSpinnerContainer .loadingide-spinner")
+s&&(s.style.display="inline-block"),loadingTooLongTimeout=setTimeout((function(){
+onLoadingTooLong(architectReadyPromise,!0)
+var t=document.querySelector("#loadingide .timeout")
+t&&(t.style.display="block")}),6e4)}),2e3)
+const architectApp=await architectReadyPromise
+var architectReadyTime=Date.now(),services=architectApp.services,settings=services.settings,vfs=services.vfs,clientMetrics=services.clientMetrics
+vfs.connected||await vfs.once("connect"),clientMetrics.addValue("architectReadyToVfsConnectTime",Date.now()-architectReadyTime),
+await settings.once("initialized")
+const layout=services.layout
+layout&&!layout.hasTheme&&await layout.once("eachTheme"),clientMetrics.addValue("bootstrapStartToHideLoaderTime",Date.now()-bootstrapStartTime),
+clientMetrics.addValue("architectReadyToHideLoaderTime",Date.now()-architectReadyTime),hideLoader()}
+function getMessage(){
+var isMac=/Mac(Intel|intosh|PPC)/.test(navigator.platform),messages=["Use the Collaborate panel when collaborating for optimal teamwork.","Happy coding!","Everything as you left it.","Thank you Ada Lovelace!","POST /desktop/era","Try using VIM mode!","Press "+(isMac?"Ctrl-Option-Right":"Ctrl-Alt-Right")+" to select the next instance of a word.","Press "+(isMac?"Cmd-.":"Ctrl-.")+" to show all keyboard commands.","To rename a variable, highlight it then press "+(isMac?"Option-Cmd-R":" Ctrl-Alt-R")+".","Press "+(isMac?"Option-W":"Alt-W")+" to close your current IDE tab.","Press "+(isMac?"Cmd-D":"Ctrl-D")+" to delete the current line of code","Press "+(isMac?"Option-Tab":"Alt-`")+" to go to the next IDE tab.","Press "+(isMac?"Option-Shift-T":"Alt-Shift-T")+" to reopen a tab you closed.","Press "+(isMac?"Option-T":"Alt-T")+" to open a new terminal at any time.","Press "+(isMac?"Cmd-E":"Ctrl-E")+" to search for a file by name.","Press "+(isMac?"Cmd-Shift-E":"Ctrl-Shift-E")+" to search for a function by name.","Press "+(isMac?"Option-S":"Alt-S")+" to switch between a terminal and an editor."],idx=Math.floor(Math.random()*messages.length)
+return idx==messages.length&&(idx=messages.length-1),messages[idx]}
+exports.startCloud9=async function(getPlugins,bootstrapStartTime,options){
+const architectAppPromise=new Promise((resolve,reject)=>{setTimeout(async()=>{
+startArchitectApp(await getPlugins(architectAppPromise),bootstrapStartTime).then(resolve,reject)})
+}),ideShownPromise=renderLoadingScreen(architectAppPromise,bootstrapStartTime,options)
+architectAppPromise.then(async architectApp=>{
+const services=architectApp.services,tabManager=services.tabManager,clientMetrics=services.clientMetrics
+await tabManager.once("tabManagerLoadedState"),await ideShownPromise,clientMetrics.addValue("bootstrapStartToCloud9Ready",Date.now()-bootstrapStartTime)
+})}}))
+
+
+define("@aws/cloud9/plugins/c9.static.ide/www/bootstrap.js",[],(function(require,exports,module){
+if("?loginCallback=1"==window.location.search){if(window.opener){window.opener.focus()
+const csrfMetaTag=document.querySelector('meta[name="awsc-csrf-token"]')
+window.opener.postMessage({type:"vfsLoginCallbackCalled",
+csrfToken:csrfMetaTag?csrfMetaTag.content:void 0},"*")}window.close()}
+var bootstrapStartTime=Date.now()
+async function loadAppConfigAndStartApp(){var region=getRegion(),stage=getStage()
+const isLambdaDisabledInRegion=["cn-north-1","cn-northwest-1"].includes(region)
+setCurrentRegionMezzanine(region)
+var staticPrefix=document.querySelector("script[src*='bootstrap.js']").src.split("/bootstrap.js")[0],url=new URL(window.location.href),packed="Devo"!==stage||"1"===url.searchParams.get("packed"),buildPrefix="1"===url.searchParams.get("debug")?"/nc-build/":"/build/"
+configureRequire(),await require(["@c9/ide/shared_bootstrap"])
+const bootstrap=require("@c9/ide/shared_bootstrap"),{startCloud9:startCloud9}=bootstrap
+async function getPlugins(architectAppPromise){configureAnalytics(stage),handleMezzanine()
+const metricsPromise=architectAppPromise.then(architectApp=>architectApp.services.clientMetrics),startingApplicationTime=Date.now(),settingsPromise=getSettings().catch(showErrorPage).then(settings=>({
+settings:settings,settingsLoadingTime:Date.now()-startingApplicationTime
+})),defaultBundleLoadingTimePromise=require([getDefaultBundle()]).then(_=>Date.now()-startingApplicationTime),[{settings:settings,settingsLoadingTime:settingsLoadingTime},defaultBundleLoadingTime]=await Promise.all([settingsPromise,defaultBundleLoadingTimePromise])
+metricsPromise.then(clientMetrics=>clientMetrics.addValue("defaultBundleLoadingTime",defaultBundleLoadingTime)),
+metricsPromise.then(clientMetrics=>clientMetrics.addValue("settingsLoadingTime",settingsLoadingTime))
+const settingsAndDefaultBundleLoadedTime=Date.now(),[config]=await require(["@aws/cloud9/configs/ide/"+settings.configName])
+let isLambdaIntegrationEnabled=!0,isLambdaPlugin=!1
+try{if(isLambdaPlugin=settings.externalConfig.staticUrl.includes("aws-toolkit-cloud9"),
+settings.enableToolkit){isLambdaIntegrationEnabled=!settings.defaultToolkitSetting
+const awsPreference=JSON.parse(settings.settings.project).aws
+awsPreference&&void 0!==awsPreference["@awsToolkit"]&&(isLambdaIntegrationEnabled=!awsPreference["@awsToolkit"])
+}}catch(err){}var plugins
+if(isLambdaDisabledInRegion&&(isLambdaIntegrationEnabled=!1),isLambdaIntegrationEnabled||!isLambdaPlugin){
+if(settings.externalConfig&&settings.externalConfig.staticCssUrl&&(settings.additionalStyleSheet=settings.externalConfig.staticCssUrl),
+plugins=window.plugins=config(settings),settings.externalConfig&&settings.externalConfig.staticUrl){
+settings.plugins=plugins
+try{
+const[remoteConfig]=await require([window.externalUrlOverride||settings.externalConfig.staticUrl])
+plugins=window.plugins=remoteConfig(settings,plugins)}catch(err){}}
+const bundlesLoadedTime=Date.now()
+metricsPromise.then(clientMetrics=>clientMetrics.addValue("customBundleLoadingTime",bundlesLoadedTime-settingsAndDefaultBundleLoadedTime))
+}else plugins=window.plugins=config(settings)
+return plugins}function getBootstrapOptions(){var loadingMessageOverride
+return~location.hash.indexOf("create")&&(loadingMessageOverride="Creating Your New Development Environment",
+location.hash=location.hash.replace(/&?create/,"")),{loadingMessageOverride:loadingMessageOverride,
+onLoadingTooLong(architectAppPromise,wasTooLong){architectAppPromise.then(architectApp=>{
+architectApp.services.clientMetrics.addValue("ideLoadingTooLong",wasTooLong?1:0,"clog")})}}}
+function getDefaultBundle(){
+var defaultBundle=region?"@aws/cloud9/configs/ide/environment-default":"@aws/cloud9/configs/ide/default"
+return packed?staticPrefix+buildPrefix+"configs/ide/"+defaultBundle:defaultBundle}
+function setCurrentRegionMezzanine(region){
+window.ConsoleNavService&&window.ConsoleNavService.Model&&!window.ConsoleNavService.Model.currentRegionId&&(window.ConsoleNavService.Model.currentRegionId=region)
+}function configureRequire(){
+var globalRequire=window.requirejs,useBundle="0"!==url.searchParams.get("bundle")
+globalRequire.MODULE_LOAD_URL=staticPrefix+(/\/static$/.test(staticPrefix)?buildPrefix:"/")+"modules",
+packed?globalRequire.resetConfig({packed:!0,assetUrl:staticPrefix
+}):useBundle?globalRequire.resetConfig({assetUrl:staticPrefix,MODULE_LOAD_URL:staticPrefix,
+useDevBundle:!0,transform:"amd"}):globalRequire.config({baseUrl:staticPrefix
+}),"1"===url.searchParams.get("es5")&&(globalRequire.config.transform="es5")}
+async function getSettings(){
+var globalRequire=window.requirejs,bundleConfigId=url.searchParams.get("bundleConfigId")
+globalRequire["_c9_api!"]=function(environmentId,callback){var params={staticPrefix:staticPrefix,
+environmentId:environmentId}
+bundleConfigId&&(params.bundleConfigId=bundleConfigId),fetchConfig(params,region,(function(err,val){
+if(err)return showErrorPage(err)
+define("_c9_api!"+environmentId,[],val),callback()}))}
+var requireApiString="_c9_api!"+window.location.pathname.split("/").pop()
+const[settings]=await require([requireApiString])
+"1"==url.searchParams.get("collab")?settings.collab=!0:"0"==url.searchParams.get("collab")&&(settings.collab=!1)
+let isEnvironmentCreatedAfterLaunchDate=!1,toolkitReleased=!0,isSSHEnvironment=!1
+try{
+const environmentCreationDate=settings.project.createdAt,toolkitLaunchDate="2020-12-11T00:00:00.000Z"
+environmentCreationDate&&(isEnvironmentCreatedAfterLaunchDate=Date.parse(environmentCreationDate)>Date.parse(toolkitLaunchDate)),
+isSSHEnvironment="ssh"===settings.project.type}catch(e){}
+const isPreprod="Alpha"===getStage()||"Beta"===getStage(),enableExtensions=!0,enableToolkit="1"===url.searchParams.get("extensions")||toolkitReleased&&isEnvironmentCreatedAfterLaunchDate&&!isSSHEnvironment||isPreprod,enableJavaExtension="1"===url.searchParams.get("extensions")||isPreprod,enableFeedbackExtension="1"===url.searchParams.get("feedback")||isPreprod,enableGitExtension="1"===url.searchParams.get("extensions")||isEnvironmentCreatedAfterLaunchDate&&!isSSHEnvironment||isPreprod,themePrefix=staticPrefix+buildPrefix+"skin/@aws/cloud9/configs/ide/"+(region?"environment-default":settings.configName),noTracking=url.searchParams.get("noTracking"),accountId=getCookie("aws-account-alias"),defaultToolkitSetting=isEnvironmentCreatedAfterLaunchDate,regionOverride=isPreprod&&url.searchParams.get("region")
+regionOverride&&(settings.region=regionOverride)
+const addedSettings={startLoadTime:bootstrapStartTime,packed:packed,staticPrefix:staticPrefix,
+stage:stage,noTracking:noTracking,accountId:accountId,themePrefix:themePrefix,
+enableExtensions:enableExtensions,enableToolkit:enableToolkit,enableGitExtension:enableGitExtension,
+enableJavaExtension:enableJavaExtension,isLambdaDisabledInRegion:isLambdaDisabledInRegion,
+toolkitReleased:toolkitReleased,extendFileWatchingDepth:isEnvironmentCreatedAfterLaunchDate,
+defaultToolkitSetting:defaultToolkitSetting,enableFeedbackExtension:enableFeedbackExtension,
+isSSHEnvironment:isSSHEnvironment}
+return Object.assign(settings,addedSettings)}
+await startCloud9(getPlugins,bootstrapStartTime,getBootstrapOptions())}
+function configureAnalytics(stage){
+window.AWSC&&window.AWSC.Analytics&&"Devo"==stage&&window.AWSC.Analytics.configure({debug:!0})}
+function handleMezzanine(){if(window.AWSC){
+var linkDocs=Array.prototype.slice.call(document.getElementsByTagName("link"))
+;(linkDocs=linkDocs.filter((function(doc){return doc.href.indexOf("c9.ide")<0
+}))).forEach((function(doc){doc.parentElement.removeChild(doc)}))}}function getRegion(me){
+return document.getElementById("aws-cloud9-region").getAttribute("value")}function getStage(){
+var stageEl=document.getElementById("aws-cloud9-stage")
+return stageEl?stageEl.getAttribute("value"):"Prod"}function fetchConfig(params,region,callback){
+var called=!1
+function done(err,data){called||(called=!0,callback(err,data))}function reqListener(){var data
+try{var responseJson=JSON.parse(this.responseText)
+if(!responseJson.config)throw responseJson
+data=JSON.parse(responseJson.config)}catch(e){
+if(/^Unexpected token.*in JSON at position/i.test(e.message)){
+var errorToThrow=new Error("An error has occurred")
+return errorToThrow.code=this.status,done(errorToThrow)}return done(e)}done(null,data)}
+function reqError(err){done(err)}var xhr=new XMLHttpRequest
+xhr.withCredentials=!0,xhr.onload=reqListener,xhr.onerror=reqError,xhr.open("POST","/cloud9/api/cloud9",!0),
+xhr.setRequestHeader("Accept","application/json"),
+xhr.setRequestHeader("Content-Type","application/json")
+var csrfMetaTag=document.querySelector('meta[name="awsc-csrf-token"]')
+csrfMetaTag&&csrfMetaTag.content&&xhr.setRequestHeader("X-CSRF-TOKEN",csrfMetaTag.content)
+var operation="GetEnvironmentConfig"
+xhr.send(JSON.stringify({method:"POST",path:"/",region:region,params:{},headers:{
+"Content-Type":"application/x-amz-json-1.1",
+"X-Amz-Target":"AWSCloud9WorkspaceManagementService."+operation},operation:operation,
+contentString:JSON.stringify(params)}))}function getCookie(name){
+var parts=("; "+document.cookie).split("; "+name+"=")
+if(2==parts.length)return parts.pop().split(";").shift()}loadAppConfigAndStartApp()
+var supportedErrorCodes=[404,500,503],defaultErrorCode=500,errorPageRootPath="/cloud9/home/"
+function showErrorPage(err){var errorCode=defaultErrorCode,message=err.message||err.Message
+if(supportedErrorCodes.indexOf(err.code)>=0)errorCode=err.code
+else if("AccessDeniedException"==err.__type){errorCode=400
+var userMatch=message.match(/arn:(aws|aws-cn|aws-us-gov|aws-iso|aws-iso-b):iam[^\s]*/)
+message="User "+(userMatch?userMatch[0]:"")+" is not authorized to open this environment. Either the environment doesn't exist or the user is not a member of this environment."
+}else"InternalFailure"===err.__type?message=message||"Internal error in frontend proxy when opening environment":500===err.code&&(message=message||"Internal error when opening environment")
+var url=errorPageRootPath+errorCode
+if(message&&(url+="?message="+encodeURIComponent(message)),url){
+var iframe=document.createElement("iframe")
+iframe.id="error-page",iframe.src=url,iframe.style.cssText=["position: fixed","z-index: 10000000","margin: 0","border: 0","padding: 0","width: 100%","height: 100%","background: white"].join(";"),
+document.body.appendChild(iframe)}}}))
+
+
+define("@c9/aceterm",[],(function(){return require("@c9/aceterm/src/aceterm")})),
+define("tern",[],(function(){return require("tern/lib/tern")})),define("base64-js",[],(function(){
+return require("base64-js/index")})),define("jsonm",[],(function(){
+return require("jsonm/build/node/index")})),define("source-map",[],(function(){
+return require("source-map/lib/source-map")})),define("lodash",[],(function(){
+return require("lodash/lodash")})),define("lodash.isequal",[],(function(){
+return require("lodash.isequal/index")})),define("@c9/msgpack-js",[],(function(){
+return require("@c9/msgpack-js/msgpack")})),define("@c9/smith",[],(function(){
+return require("@c9/smith/smith")})),define("@c9/kaefer",[],(function(){
+return require("@c9/kaefer/index")})),define("@c9/vscode-source",[],(function(){
+return require("@c9/vscode-source/out/main")})),define("engine.io-client",[],(function(){
+return require("engine.io-client/index")})),define("secure-json-parse",[],(function(){
+return require("secure-json-parse/index")})),define("vscode-uri",[],(function(){
+return require("vscode-uri/lib/umd/index")})),define("vscode-languageserver-types",[],(function(){
+return require("vscode-languageserver-types/lib/umd/main")})),define("architect",[],(function(){
+return require("architect/architect")})),define("cloudformation-schema-js-yaml",[],(function(){
+return require("cloudformation-schema-js-yaml/index")})),define("js-yaml",[],(function(){
+return require("js-yaml/index")})),define("mocha",[],(function(){return require("mocha/index")})),
+define("chai",[],(function(){return require("chai/index")})),define("js-polyfills",[],(function(){
+return require("js-polyfills/polyfill")})),define("@amzn/aws-china-rebrand-utils",[],(function(){
+return require("@amzn/aws-china-rebrand-utils/dist/index")}))
+
+
+require("@aws/cloud9/plugins/c9.static.ide/www/bootstrap.js")
+
